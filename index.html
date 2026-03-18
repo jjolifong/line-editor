@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>도로 라인 편집기</title>
+
+<!-- ========================================================
+  🔑 카카오 앱키 입력 위치
+  아래 YOUR_KAKAO_APP_KEY 를 본인의 JavaScript 앱키로 교체하세요
+  발급: https://developers.kakao.com → 내 애플리케이션 → 앱키 → JavaScript 키
+======================================================== -->
+<script type="text/javascript"
+  src="//dapi.kakao.com/v2/maps/sdk.js?appkey=e1e4a1aca6db9f154780b01d63d46997&libraries=services">
+</script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap');
+
+:root {
+  --bg:      #12151f;
+  --panel:   #1a1f2e;
+  --panel2:  #222840;
+  --border:  #2e3a5a;
+  --accent:  #4f8ef7;
+  --red:     #ff4757;
+  --yellow:  #ffa502;
+  --green:   #2ed573;
+  --text:    #e8eaf0;
+  --text2:   #7a8aaa;
+  --font:    'Noto Sans KR', sans-serif;
+  --mono:    'JetBrains Mono', monospace;
+  --r:       8px;
+  --shadow:  0 4px 20px rgba(0,0,0,0.5);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); }
+
+/* ── 전체 레이아웃 ── */
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ── 헤더 ── */
+#header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; z-index: 100;
+}
+#header h1 { font-size: 14px; font-weight: 700; }
+#header h1 span { color: var(--red); }
+#mode-badge {
+  margin-left: auto;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 700;
+  background: var(--panel2); border: 1px solid var(--border);
+  color: var(--text2); transition: all 0.2s;
+}
+#mode-badge.on { background: var(--red); border-color: var(--red); color: #fff; }
+
+/* ── 툴바 ── */
+#toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.tb-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--panel2); color: var(--text);
+  font-size: 12px; font-family: var(--font);
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.tb-btn:hover { border-color: var(--accent); color: var(--accent); }
+.tb-btn.active { background: var(--red); border-color: var(--red); color: #fff; }
+.tb-btn.green { border-color: var(--green); color: var(--green); }
+.tb-btn.green:hover { background: var(--green); color: #000; }
+.tb-btn.danger { border-color: var(--red); color: var(--red); }
+.tb-btn.danger:hover { background: var(--red); color: #fff; }
+.sep { width: 1px; height: 26px; background: var(--border); margin: 0 2px; }
+
+/* ── 지도 + 로드뷰 영역 ── */
+#main {
+  flex: 1; display: flex; overflow: hidden;
+}
+
+/* 지도 */
+#map-wrap { flex: 1; position: relative; min-width: 0; }
+#map { width: 100%; height: 100%; }
+
+/* 지도 위 컨트롤 */
+#map-type-ctrl {
+  position: absolute; top: 10px; left: 10px; z-index: 10;
+  display: flex; border-radius: var(--r); overflow: hidden;
+  border: 1px solid var(--border); box-shadow: var(--shadow);
+}
+.mt-btn {
+  padding: 6px 11px; font-size: 11px; font-weight: 600;
+  background: var(--panel); color: var(--text2);
+  border: none; cursor: pointer; font-family: var(--font);
+  transition: all 0.15s;
+}
+.mt-btn.active { background: var(--accent); color: #fff; }
+
+#coord-bar {
+  position: absolute; bottom: 8px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(18,21,31,0.88); backdrop-filter: blur(6px);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 12px; font-size: 11px; color: var(--text2);
+  font-family: var(--mono); pointer-events: none; z-index: 10;
+  white-space: nowrap;
+}
+
+#draw-hint {
+  position: absolute; bottom: 36px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,71,87,0.92); backdrop-filter: blur(6px);
+  border-radius: 8px; padding: 7px 16px;
+  font-size: 12px; font-weight: 600; color: #fff;
+  pointer-events: none; z-index: 10;
+  display: none; white-space: nowrap;
+}
+#draw-hint.show { display: block; }
+
+/* 로드뷰 패널 */
+#rv-panel {
+  width: 420px; flex-shrink: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  transition: width 0.25s;
+}
+#rv-panel.collapsed { width: 0; overflow: hidden; }
+
+#rv-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#rv-header h3 { font-size: 13px; font-weight: 700; flex: 1; }
+#rv-toggle-btn {
+  padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--panel2);
+  color: var(--text2); font-size: 11px; cursor: pointer;
+  font-family: var(--font);
+}
+#rv-toggle-btn:hover { color: var(--text); }
+
+#roadview { flex: 1; background: #000; min-height: 0; }
+
+#rv-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: var(--text2); font-size: 13px; gap: 8px;
+  padding: 20px; text-align: center;
+}
+#rv-empty .icon { font-size: 36px; opacity: 0.4; }
+
+/* 로드뷰 아래 속성 입력 */
+#rv-attr {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  display: none;
+}
+#rv-attr.show { display: block; }
+#rv-attr-title {
+  font-size: 12px; font-weight: 700; margin-bottom: 10px;
+  color: var(--text2);
+}
+#rv-attr-title span { color: var(--red); font-family: var(--mono); }
+
+.field { margin-bottom: 10px; }
+.field label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 4px; font-weight: 600; }
+.field input, .field textarea {
+  width: 100%; padding: 7px 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg);
+  color: var(--text); font-size: 13px; font-family: var(--font);
+  outline: none; transition: border-color 0.15s;
+}
+.field input:focus, .field textarea:focus { border-color: var(--accent); }
+.field input[type=number] { font-family: var(--mono); }
+
+.width-warn {
+  font-size: 11px; margin-top: 4px; padding: 4px 8px;
+  border-radius: 5px; display: none;
+}
+.width-warn.show { display: block; }
+.width-warn.fire { background: rgba(255,71,87,0.15); color: var(--red); border: 1px solid rgba(255,71,87,0.3); }
+.width-warn.caution { background: rgba(255,165,2,0.15); color: var(--yellow); border: 1px solid rgba(255,165,2,0.3); }
+.width-warn.ok { background: rgba(46,213,115,0.12); color: var(--green); border: 1px solid rgba(46,213,115,0.3); }
+
+.attr-actions { display: flex; gap: 8px; margin-top: 12px; }
+.btn-save {
+  flex: 1; padding: 9px; border-radius: var(--r);
+  background: var(--accent); border: none; color: #fff;
+  font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font);
+}
+.btn-save:hover { opacity: 0.85; }
+.btn-cancel {
+  padding: 9px 14px; border-radius: var(--r);
+  background: var(--panel2); border: 1px solid var(--border);
+  color: var(--text2); font-size: 12px; cursor: pointer; font-family: var(--font);
+}
+.btn-cancel:hover { color: var(--text); }
+
+/* ── 토스트 ── */
+#toast {
+  position: fixed; top: 56px; left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 18px;
+  font-size: 12px; color: var(--text);
+  opacity: 0; transition: all 0.2s;
+  pointer-events: none; z-index: 9999; white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.ok   { border-color: var(--green); color: var(--green); }
+#toast.warn { border-color: var(--yellow); color: var(--yellow); }
+#toast.err  { border-color: var(--red); color: var(--red); }
+
+/* 스크롤바 */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 헤더 -->
+  <div id="header">
+    <h1>도로 라인 <span>편집기</span></h1>
+    <span id="line-count" style="font-size:11px;color:var(--text2);">라인 0개</span>
+    <div id="mode-badge">대기</div>
+  </div>
+
+  <!-- 툴바 -->
+  <div id="toolbar">
+    <button class="tb-btn" id="btn-draw" onclick="toggleDraw()">✏️ 라인 그리기</button>
+    <button class="tb-btn" onclick="undoLast()">↩ 실행취소</button>
+    <div class="sep"></div>
+    <button class="tb-btn green" onclick="exportJSON()">💾 JSON 내보내기</button>
+    <button class="tb-btn" onclick="document.getElementById('file-in').click()">📂 불러오기</button>
+    <input type="file" id="file-in" accept=".json" style="display:none" onchange="importJSON(event)">
+    <div class="sep"></div>
+    <button class="tb-btn" onclick="toggleRvPanel()">🔭 로드뷰 패널</button>
+    <div class="sep"></div>
+    <button class="tb-btn danger" onclick="clearAll()">🗑 전체삭제</button>
+  </div>
+
+  <!-- 메인 -->
+  <div id="main">
+
+    <!-- 지도 -->
+    <div id="map-wrap">
+      <div id="map"></div>
+
+      <!-- 지도 타입 -->
+      <div id="map-type-ctrl">
+        <button class="mt-btn active" id="btn-map" onclick="setMapType('normal')">🗺 일반</button>
+        <button class="mt-btn" id="btn-sky" onclick="setMapType('skyview')">🛰 위성</button>
+        <button class="mt-btn" id="btn-hybrid" onclick="setMapType('hybrid')">🔀 하이브리드</button>
+      </div>
+
+      <div id="coord-bar">-- , --</div>
+      <div id="draw-hint" id="draw-hint">📍 시작점을 클릭하세요</div>
+    </div>
+
+    <!-- 로드뷰 패널 -->
+    <div id="rv-panel">
+      <div id="rv-header">
+        <h3>🔭 로드뷰</h3>
+        <span id="rv-status" style="font-size:11px;color:var(--text2);">라인을 클릭하세요</span>
+        <button id="rv-toggle-btn" onclick="toggleRvPanel()">◀ 닫기</button>
+      </div>
+
+      <!-- 로드뷰 표시 영역 -->
+      <div id="roadview"></div>
+
+      <!-- 빈 상태 안내 -->
+      <div id="rv-empty">
+        <div class="icon">🛣</div>
+        <div>지도에서 라인을 클릭하면<br>해당 위치의 로드뷰가 표시됩니다</div>
+        <div style="font-size:11px;margin-top:4px;color:var(--text2);">도로폭도 여기서 바로 입력할 수 있어요</div>
+      </div>
+
+      <!-- 속성 입력 -->
+      <div id="rv-attr">
+        <div id="rv-attr-title">라인 <span id="rv-line-num">#1</span> 속성 입력</div>
+
+        <div class="field">
+          <label>도로 이름 (선택)</label>
+          <input type="text" id="attr-name" placeholder="예: 무양공원 앞 도로">
+        </div>
+
+        <div class="field">
+          <label>도로 전체 폭 (m) — 로드뷰 보면서 입력</label>
+          <input type="number" id="attr-width" min="1" max="50" step="0.5"
+            placeholder="예: 6" oninput="checkWidth(this.value)">
+          <div class="width-warn" id="width-warn"></div>
+        </div>
+
+        <div class="field">
+          <label>메모</label>
+          <input type="text" id="attr-memo" placeholder="예: 편도1차로, 인도 없음">
+        </div>
+
+        <div class="attr-actions">
+          <button class="btn-cancel" onclick="cancelAttr()">취소</button>
+          <button class="btn-save" onclick="saveAttr()">저장</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  상태
+// ═══════════════════════════════════════════════════════
+let lines      = [];
+let lineCount  = 0;
+let drawMode   = false;
+let drawStart  = null;   // kakao.maps.LatLng
+let tempPoly   = null;
+let tempMarker = null;
+let editingId  = null;
+let selectedId = null;
+let rvOpen     = true;
+let mapTypeNow = 'normal';
+
+// 카카오맵 객체
+let kakaoMap, roadview, rvClient;
+let lineOverlays = [];   // { id, polyline, startDot, endDot, midMarker }
+
+// ═══════════════════════════════════════════════════════
+//  지도 초기화
+// ═══════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  const center = new kakao.maps.LatLng(35.175, 126.85);
+
+  kakaoMap = new kakao.maps.Map(document.getElementById('map'), {
+    center, level: 4
+  });
+
+  // 로드뷰 초기화
+  roadview = new kakao.maps.Roadview(document.getElementById('roadview'));
+  rvClient = new kakao.maps.RoadviewClient();
+
+  // 지도 클릭
+  kakao.maps.event.addListener(kakaoMap, 'click', onMapClick);
+
+  // 마우스 이동 → 좌표 표시 + 임시선
+  kakao.maps.event.addListener(kakaoMap, 'mousemove', onMapMove);
+
+  // 저장된 데이터 로드
+  loadLocal();
+});
+
+// ═══════════════════════════════════════════════════════
+//  지도 클릭
+// ═══════════════════════════════════════════════════════
+function onMapClick(e) {
+  if (!drawMode) return;
+  const pos = e.latLng;
+
+  if (!drawStart) {
+    // 시작점
+    drawStart = pos;
+    if (tempMarker) tempMarker.setMap(null);
+    tempMarker = new kakao.maps.Marker({
+      position: pos, map: kakaoMap,
+      image: new kakao.maps.MarkerImage(
+        'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/red_b.png',
+        new kakao.maps.Size(24, 35)
+      )
+    });
+    setHint('종점을 클릭하세요 (ESC = 취소)');
+  } else {
+    // 종점 확정
+    const end = pos;
+    clearTempDraw();
+
+    lineCount++;
+    const id = 'L' + Date.now();
+    lines.push({
+      id, num: lineCount,
+      name: '', width: null, memo: '',
+      start: { lat: drawStart.getLat(), lng: drawStart.getLng() },
+      end:   { lat: end.getLat(),       lng: end.getLng() },
+      confirmed: false
+    });
+
+    editingId = id;
+    setDrawMode(false);
+    renderLines();
+    openRvAttr(id);
+  }
+}
+
+function onMapMove(e) {
+  const pos = e.latLng;
+  document.getElementById('coord-bar').textContent =
+    `${pos.getLat().toFixed(6)}, ${pos.getLng().toFixed(6)}`;
+
+  if (drawMode && drawStart) {
+    if (tempPoly) tempPoly.setMap(null);
+    tempPoly = new kakao.maps.Polyline({
+      map: kakaoMap,
+      path: [drawStart, pos],
+      strokeWeight: 2, strokeColor: '#ff4757',
+      strokeOpacity: 0.6, strokeStyle: 'shortdash'
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  그리기 모드
+// ═══════════════════════════════════════════════════════
+function toggleDraw() { setDrawMode(!drawMode); }
+
+function setDrawMode(on) {
+  drawMode = on;
+  if (!on) clearTempDraw();
+
+  const badge = document.getElementById('mode-badge');
+  const btn   = document.getElementById('btn-draw');
+  badge.textContent = on ? '그리기 중' : '대기';
+  badge.classList.toggle('on', on);
+  btn.classList.toggle('active', on);
+
+  if (on) {
+    drawStart = null;
+    setHint('📍 시작점을 클릭하세요');
+  } else {
+    hideHint();
+  }
+}
+
+function clearTempDraw() {
+  if (tempPoly)   { tempPoly.setMap(null);   tempPoly = null; }
+  if (tempMarker) { tempMarker.setMap(null); tempMarker = null; }
+  drawStart = null;
+}
+
+// ESC
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (drawMode) { clearTempDraw(); setDrawMode(false); }
+  }
+});
+
+// 힌트
+function setHint(txt) {
+  const el = document.getElementById('draw-hint');
+  el.textContent = txt;
+  el.classList.add('show');
+}
+function hideHint() {
+  document.getElementById('draw-hint').classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════
+//  라인 렌더링
+// ═══════════════════════════════════════════════════════
+function renderLines() {
+  // 기존 오버레이 제거
+  lineOverlays.forEach(o => {
+    o.poly.setMap(null);
+    if (o.startDot) o.startDot.setMap(null);
+    if (o.endDot)   o.endDot.setMap(null);
+    if (o.label)    o.label.setMap(null);
+  });
+  lineOverlays = [];
+
+  lines.forEach(line => {
+    const s   = new kakao.maps.LatLng(line.start.lat, line.start.lng);
+    const end = new kakao.maps.LatLng(line.end.lat,   line.end.lng);
+    const isSel  = line.id === selectedId;
+    const isEdit = line.id === editingId;
+
+    // 중앙선 (항상 빨간색)
+    const poly = new kakao.maps.Polyline({
+      map: kakaoMap, path: [s, end],
+      strokeWeight: isSel ? 5 : 3,
+      strokeColor: isEdit ? '#ff6b81' : '#ff4757',
+      strokeOpacity: line.confirmed ? 1 : 0.5,
+      strokeStyle: isEdit ? 'shortdash' : 'solid'
+    });
+
+    // 클릭 이벤트
+    kakao.maps.event.addListener(poly, 'click', () => {
+      if (drawMode) return;
+      onLineClick(line.id);
+    });
+
+    // 시작점 마커 (속이 빈 원)
+    const startDot = new kakao.maps.CustomOverlay({
+      position: s, map: kakaoMap, zIndex: 5,
+      content: `<div style="width:10px;height:10px;border-radius:50%;
+        background:#12151f;border:2px solid #ff4757;"></div>`
+    });
+
+    // 종점 마커 (채워진 원)
+    const endDot = new kakao.maps.CustomOverlay({
+      position: end, map: kakaoMap, zIndex: 5,
+      content: `<div style="width:8px;height:8px;border-radius:50%;
+        background:#ff4757;border:1px solid #fff;"></div>`
+    });
+
+    // 거리 라벨 (중간점)
+    let label = null;
+    if (line.confirmed) {
+      const mid = new kakao.maps.LatLng(
+        (line.start.lat + line.end.lat) / 2,
+        (line.start.lng + line.end.lng) / 2
+      );
+      const dist = calcDist(line.start, line.end);
+      const wStr = line.width ? ` · ${line.width}m` : '';
+      label = new kakao.maps.CustomOverlay({
+        position: mid, map: kakaoMap, zIndex: 6,
+        content: `<div style="
+          background:rgba(18,21,31,0.88);
+          border:1px solid #ff4757;
+          border-radius:4px;
+          padding:2px 7px;
+          font-size:10px;
+          color:#ff4757;
+          font-family:'JetBrains Mono',monospace;
+          white-space:nowrap;
+          pointer-events:none;
+          transform:translateY(-14px);
+        ">#${line.num}${wStr} · ${dist}m</div>`
+      });
+    }
+
+    lineOverlays.push({ id: line.id, poly, startDot, endDot, label });
+  });
+
+  updateLineCount();
+}
+
+// ═══════════════════════════════════════════════════════
+//  라인 클릭
+// ═══════════════════════════════════════════════════════
+function onLineClick(id) {
+  // 이미 선택된 라인 재클릭 → 수정
+  if (selectedId === id) {
+    const line = lines.find(l => l.id === id);
+    if (line && line.confirmed) {
+      if (confirm(`라인 #${line.num} "${line.name}" 을 수정하시겠습니까?`)) {
+        line.confirmed = false;
+        editingId = id;
+        renderLines();
+        openRvAttr(id);
+      }
+    }
+    return;
+  }
+
+  selectedId = id;
+  renderLines();
+
+  const line = lines.find(l => l.id === id);
+  if (!line) return;
+
+  // 로드뷰: 중간점으로 이동
+  const mid = {
+    lat: (line.start.lat + line.end.lat) / 2,
+    lng: (line.start.lng + line.end.lng) / 2
+  };
+  showRoadview(mid.lat, mid.lng, line);
+}
+
+// ═══════════════════════════════════════════════════════
+//  로드뷰
+// ═══════════════════════════════════════════════════════
+function showRoadview(lat, lng, line) {
+  // 패널 열기
+  if (!rvOpen) toggleRvPanel();
+
+  const pos = new kakao.maps.LatLng(lat, lng);
+
+  document.getElementById('rv-empty').style.display = 'none';
+  document.getElementById('roadview').style.display = 'block';
+  document.getElementById('rv-status').textContent = `#${line.num} 로드뷰`;
+
+  rvClient.getNearestPanoId(pos, 50, function(panoId) {
+    if (panoId) {
+      roadview.setPanoId(panoId, pos);
+      // 로드뷰 방향: 라인 방향으로 자동 설정
+      const bearing = calcBearing(line.start, line.end);
+      roadview.setViewpoint({ pan: bearing, tilt: 0, zoom: 0 });
+    } else {
+      document.getElementById('rv-status').textContent = '로드뷰 없음 (50m 내)';
+      document.getElementById('rv-empty').style.display = 'flex';
+      document.getElementById('roadview').style.display = 'none';
+    }
+  });
+
+  // 속성 패널 표시 (미확정 라인만)
+  if (line && !line.confirmed) {
+    openRvAttr(line.id);
+  } else if (line && line.confirmed) {
+    // 확정 라인은 속성 패널 표시하되 읽기 전용으로
+    openRvAttr(line.id);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  속성 입력 패널 (로드뷰 하단)
+// ═══════════════════════════════════════════════════════
+function openRvAttr(id) {
+  const line = lines.find(l => l.id === id);
+  if (!line) return;
+
+  editingId = id;
+  document.getElementById('rv-attr').classList.add('show');
+  document.getElementById('rv-line-num').textContent = '#' + line.num;
+  document.getElementById('attr-name').value  = line.name  || '';
+  document.getElementById('attr-width').value = line.width || '';
+  document.getElementById('attr-memo').value  = line.memo  || '';
+
+  checkWidth(line.width || '');
+
+  // 패널 열기
+  if (!rvOpen) toggleRvPanel();
+}
+
+function cancelAttr() {
+  if (editingId) {
+    const line = lines.find(l => l.id === editingId);
+    if (line && !line.confirmed) {
+      lines = lines.filter(l => l.id !== editingId);
+      lineCount = lines.length > 0 ? lines[lines.length - 1].num : 0;
+      renderLines();
+    }
+  }
+  editingId = null;
+  selectedId = null;
+  document.getElementById('rv-attr').classList.remove('show');
+}
+
+function saveAttr() {
+  const width = parseFloat(document.getElementById('attr-width').value);
+  if (!width || width <= 0) {
+    showToast('도로 폭을 입력해주세요', 'warn');
+    return;
+  }
+  const line = lines.find(l => l.id === editingId);
+  if (!line) return;
+
+  line.name      = document.getElementById('attr-name').value.trim() || `라인 #${line.num}`;
+  line.width     = width;
+  line.memo      = document.getElementById('attr-memo').value.trim();
+  line.confirmed = true;
+
+  editingId = null;
+  document.getElementById('rv-attr').classList.remove('show');
+  renderLines();
+  saveLocal();
+  showToast(`라인 #${line.num} 저장됨 (폭 ${width}m)`, 'ok');
+}
+
+function checkWidth(val) {
+  const w = parseFloat(val);
+  const el = document.getElementById('width-warn');
+  if (!w) { el.className = 'width-warn'; return; }
+  if (w < 4) {
+    el.textContent = '🚒 소방차 통행 불가 (4m 미만)';
+    el.className = 'width-warn show fire';
+  } else if (w < 6) {
+    el.textContent = '⚠ 양방향 교행 불가 (6m 미만)';
+    el.className = 'width-warn show caution';
+  } else {
+    el.textContent = '✅ 양방향 통행 가능';
+    el.className = 'width-warn show ok';
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  지도 타입
+// ═══════════════════════════════════════════════════════
+function setMapType(type) {
+  mapTypeNow = type;
+  const typeMap = {
+    normal:   kakao.maps.MapTypeId.NORMAL,
+    skyview:  kakao.maps.MapTypeId.SKYVIEW,
+    hybrid:   kakao.maps.MapTypeId.HYBRID
+  };
+  kakaoMap.setMapTypeId(typeMap[type]);
+  ['btn-map','btn-sky','btn-hybrid'].forEach(id => {
+    document.getElementById(id).classList.remove('active');
+  });
+  const btnId = { normal:'btn-map', skyview:'btn-sky', hybrid:'btn-hybrid' }[type];
+  document.getElementById(btnId).classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════
+//  로드뷰 패널 토글
+// ═══════════════════════════════════════════════════════
+function toggleRvPanel() {
+  rvOpen = !rvOpen;
+  document.getElementById('rv-panel').classList.toggle('collapsed', !rvOpen);
+  document.getElementById('rv-toggle-btn').textContent = rvOpen ? '◀ 닫기' : '▶ 열기';
+  // 지도 크기 재조정
+  setTimeout(() => kakao.maps.event.trigger(kakaoMap, 'resize'), 300);
+}
+
+// ═══════════════════════════════════════════════════════
+//  실행취소 / 전체삭제
+// ═══════════════════════════════════════════════════════
+function undoLast() {
+  if (drawMode) { setDrawMode(false); return; }
+  if (!lines.length) { showToast('삭제할 라인 없음', 'warn'); return; }
+  const last = lines[lines.length - 1];
+  if (confirm(`라인 #${last.num} "${last.name || '(미저장)'}" 삭제?`)) {
+    lines.pop();
+    lineCount = lines.length > 0 ? lines[lines.length - 1].num : 0;
+    renderLines();
+    saveLocal();
+    showToast('삭제됨', 'ok');
+  }
+}
+
+function clearAll() {
+  if (!lines.length) return;
+  if (confirm(`전체 ${lines.length}개 라인을 삭제하시겠습니까?`)) {
+    lines = []; lineCount = 0; selectedId = null; editingId = null;
+    renderLines();
+    saveLocal();
+    showToast('전체 삭제됨', 'ok');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  JSON 내보내기 / 불러오기
+// ═══════════════════════════════════════════════════════
+function exportJSON() {
+  const confirmed = lines.filter(l => l.confirmed);
+  if (!confirmed.length) { showToast('저장된 라인 없음', 'warn'); return; }
+
+  const data = {
+    version: '2.0',
+    exportedAt: new Date().toISOString(),
+    lineCount: confirmed.length,
+    lines: confirmed.map(l => ({
+      id: l.id, num: l.num, name: l.name,
+      start: l.start, end: l.end,
+      width: l.width, memo: l.memo,
+      distanceM: calcDist(l.start, l.end)
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `road-lines-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  showToast(`${confirmed.length}개 내보내기 완료`, 'ok');
+}
+
+function importJSON(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = evt => {
+    try {
+      const data = JSON.parse(evt.target.result);
+      if (!data.lines) throw new Error();
+
+      const merge = lines.length > 0
+        ? confirm('기존 라인에 추가할까요?\n(취소 = 기존 삭제 후 불러오기)')
+        : false;
+
+      if (!merge) { lines = []; lineCount = 0; }
+
+      data.lines.forEach(l => {
+        lineCount++;
+        lines.push({ ...l, num: lineCount, confirmed: true,
+          id: 'L' + Date.now() + Math.random() });
+      });
+
+      renderLines();
+      saveLocal();
+      showToast(`${data.lines.length}개 불러오기 완료`, 'ok');
+
+      // 전체 범위로 이동
+      if (lines.length) {
+        const bounds = new kakao.maps.LatLngBounds();
+        lines.forEach(l => {
+          bounds.extend(new kakao.maps.LatLng(l.start.lat, l.start.lng));
+          bounds.extend(new kakao.maps.LatLng(l.end.lat,   l.end.lng));
+        });
+        kakaoMap.setBounds(bounds);
+      }
+    } catch { showToast('파일 형식 오류', 'err'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ═══════════════════════════════════════════════════════
+//  유틸
+// ═══════════════════════════════════════════════════════
+function calcDist(a, b) {
+  const R = 6371000;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const x = Math.sin(dLat/2)**2 +
+    Math.cos(a.lat*Math.PI/180) * Math.cos(b.lat*Math.PI/180) * Math.sin(dLng/2)**2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(x)));
+}
+
+function calcBearing(a, b) {
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1)*Math.sin(lat2) - Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function updateLineCount() {
+  const n = lines.filter(l => l.confirmed).length;
+  document.getElementById('line-count').textContent = `라인 ${n}개`;
+}
+
+let toastTimer;
+function showToast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className='', 2500);
+}
+
+// ═══════════════════════════════════════════════════════
+//  로컬스토리지
+// ═══════════════════════════════════════════════════════
+function saveLocal() {
+  localStorage.setItem('line_ed_v2', JSON.stringify({ lines, lineCount }));
+}
+function loadLocal() {
+  try {
+    const d = JSON.parse(localStorage.getItem('line_ed_v2') || 'null');
+    if (d) { lines = d.lines || []; lineCount = d.lineCount || 0; renderLines(); }
+  } catch {}
+}
+setInterval(saveLocal, 5000);
+window.addEventListener('beforeunload', saveLocal);
+</script>
+</body>
+</html>
